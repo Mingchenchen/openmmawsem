@@ -1695,6 +1695,95 @@ class OpenMMAWSEMSystem:
         Lambda += -self.get_alpha_by_index(i, j, 3)*p_par[a[j]]
         return Lambda
 
+    def beta_term_1(self, k_beta = 0.25*4.184):
+        print("new beta_1 term ON");
+        r_ON = .298
+        sigma_NO = .068
+        r_OH = .206
+        sigma_HO = .076
+
+        lambda_1 = np.zeros((self.natoms, self.natoms))
+
+        # for i in range(self.nres):
+        #     for j in range(self.nres):
+        #         if isChainEdge(i, self.chain_starts, self.chain_ends, n=2) or \
+        #             isChainEdge(j, self.chain_starts, self.chain_ends, n=2):
+        #             continue
+        #         if not self.res_type[j] == "IPR":
+        #             lambda_1[i][j] = self.get_lambda_by_index(i, j, 0);
+        for i, ii in zip(self.n, range(self.nres)):
+            if i==-1:
+                continue
+            for j, jj in zip(self.o, range(self.nres)):
+                    lambda_1[i][j] = self.get_lambda_by_index(ii, jj, 0);
+
+        theta_ij =   f"exp(-(r_Oi_Nj-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oi_Hj-{r_OH})^2/(2*{sigma_HO}^2))"
+        beta_string_1 = f"-k_beta*lambda_1(a1,d1)*theta_ij;theta_ij={theta_ij};r_Oi_Nj=distance(d1,a1);r_Oi_Hj=distance(d1,a2);"
+        #beta_string_1 = f"lambda_1(a1,d1)"
+        beta_1 = CustomHbondForce(beta_string_1);
+        beta_1.addGlobalParameter("k_beta", k_beta)
+        #beta_1.addPerDonorParameter("res_i");
+        #beta_1.addPerDonorParameter("res_j");
+        #beta_1.addPerAcceptorParameter("res_j");
+        beta_1.addTabulatedFunction("lambda_1", Discrete2DFunction(self.natoms, self.natoms, lambda_1.T.flatten()))
+        print(lambda_1)
+        for i in range(self.nres):
+            if self.o[i]!= -1:
+                beta_1.addDonor(self.o[i], -1, -1, []);
+            if self.n[i]!=-1 and self.h[i]!=-1:
+                beta_1.addAcceptor(self.n[i], self.h[i], -1, [])
+        #print(beta_1)
+        beta_1.setCutoffDistance(1.0);
+        beta_1.setForceGroup(23)
+        print('partdone')
+        return beta_1
+
+    def beta_term_2(self, k_beta = 0.25*4.184):
+        print("new beta_2 term ON");
+        r_ON = .298
+        sigma_NO = .068
+        r_OH = .206
+        sigma_HO = .076
+        p_par, p_anti, p_antihb, p_antinhb, p_parhb = self.read_beta_parameters()
+
+
+        lambda_2 = np.zeros((self.natoms, self.natoms))
+        for i, ii in zip(self.o, range(self.nres)):
+            if self.o[ii]== -1 or self.n[ii]==-1 or self.h[ii]==-1:
+                continue
+            for j, jj in zip(self.o, range(self.nres)):
+                if self.o[jj]== -1 or self.n[jj]==-1 or self.h[jj]==-1:
+                    continue
+                if isChainEdge(ii, self.chain_starts, self.chain_ends, n=2) or isChainEdge(jj, self.chain_starts, self.chain_ends, n=2):
+                    continue
+                lambda_2[i][j] = self.get_Lambda_2(ii, jj, p_par, p_anti, p_antihb, p_antinhb, p_parhb);
+                #lambda_2[i][j] = self.lambda_coefficient(i//6,j//6, 2)
+        theta_ij =   f"exp(-(r_Oi_Nj-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oi_Hj-{r_OH})^2/(2*{sigma_HO}^2))"
+        theta_ji =   f"exp(-(r_Oj_Ni-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oj_Hi-{r_OH})^2/(2*{sigma_HO}^2))"
+        #beta_string_2 = f"-k_beta*lambda_2(d1,a1)*theta_ij*theta_ji;\
+        #                theta_ij={theta_ij};r_Oi_Nj=distance(d1,a2);r_Oi_Hj=distance(d1,a3);\
+        #                theta_ji={theta_ji};r_Oj_Ni=distance(a1,d2);r_Oj_Hi=distance(a1,d3);"
+
+        beta_string_2 = f"lambda_2(d1,a1)"
+        beta_2 = CustomHbondForce(beta_string_2);
+        beta_2.addGlobalParameter("k_beta", k_beta)
+        #beta_1.addPerDonorParameter("res_i");
+        #beta_1.addPerDonorParameter("res_j");
+        #beta_1.addPerAcceptorParameter("res_j");
+        beta_2.addTabulatedFunction("lambda_2", Discrete2DFunction(self.natoms, self.natoms, lambda_2.T.flatten()))
+        for i in range(self.nres):
+            if isChainEdge(i, self.chain_starts, self.chain_ends, n=2):
+                continue
+            if self.o[i]!= -1 and self.n[i]!=-1 and self.h[i]!=-1:
+                beta_2.addDonor(self.o[i], self.n[i], self.h[i], []);
+                beta_2.addAcceptor(self.o[i], self.n[i], self.h[i], [])
+        #print(beta_1)
+        beta_2.setCutoffDistance(0.7);
+        beta_2.setForceGroup(24)
+        print('partdone')
+        return beta_2
+
+
     def apply_beta_term_1(self, k_beta=0.25*4.184):
         print("beta_1 term ON");
         nres, n, h, ca, o, res_type = self.nres, self.n, self.h, self.ca, self.o, self.res_type
@@ -1822,6 +1911,7 @@ class OpenMMAWSEMSystem:
                     pap.addBond([ca[i], ca[j], ca[i+4], ca[j-4]], [gamma_ap])
                 if i <= nres-13 and j >= i+9 and j < nres-4:
                     pap.addBond([ca[i], ca[j], ca[i+4], ca[j+4]], [gamma_p])
+
         pap.setForceGroup(26)
         return pap
 
